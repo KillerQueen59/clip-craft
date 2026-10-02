@@ -1,0 +1,29 @@
+yt-dlp>=2024.1.0
+faster-whisper>=1.0.0
+# GPU acceleration (NVIDIA CUDA 12). Harmless on CPU-only machines.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+# Auto-thumbnail face detection (4.x has the Haar CascadeClassifier API; 5.x removed it).
+opencv-python<5
+# YouTube Shorts bulk upload (only needed for `clipcraft upload`).
+google-api-python-client
+google-auth-oauthlib
+# Hook voiceover TTS (only needed when [tts] enabled=true). Free, no API key,
+# but calls Microsoft's servers so it needs internet at render time.
+edge-tts>=6.1.0
+# Audience-reaction detection ([reaction] enabled=true): PANNs = pretrained
+# AudioSet CNN that hears Laughter/Giggle/Cheering. CPU is fine. Install torch
+# from the CPU index to avoid the ~2.5GB CUDA build:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# First use downloads the label CSV + a 312MB checkpoint to ~/panns_data.
+torch
+panns_inference
+# Editor-project export ([export] enabled=true, formats includes "otio"): writes
+# an OpenTimelineIO .otio the FCPXML/CapCut writers don't need. FCPXML and CapCut
+# export work without this — only the .otio adapter requires it.
+opentimelineio>=0.15
+# Speaker-overlap decision layer ([diarize] enabled=true): pyannote diarization
+# decides when two people talk at once (single-focus vs duo stack). Gated models —
+# needs a free HF token (env HF_TOKEN) + a one-time "Agree" on the model page:
+# https://huggingface.co/pyannote/speaker-diarization-3.1
+pyannote.audio>=3.1

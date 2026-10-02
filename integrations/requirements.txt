@@ -1,0 +1,9 @@
+# clipcraft integrations layer (API + Discord bot). Install into the SAME
+# interpreter that runs clipcraft, or point CLIPCRAFT_PYTHON at that interpreter.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+requests>=2.31
+# Discord approval/monitor bot
+discord.py>=2.3
+aiohttp>=3.9

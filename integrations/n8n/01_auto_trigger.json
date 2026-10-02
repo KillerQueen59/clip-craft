@@ -1,0 +1,64 @@
+{
+  "name": "Auto-Trigger — new YouTube upload fires the pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=REPLACE_CHANNEL_ID",
+        "pollTimes": {"item": [{"mode": "everyHour"}]},
+        "options": {}
+      },
+      "id": "b1000000-0000-0000-0000-000000000001",
+      "name": "New Video (RSS)",
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [-560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One RSS item = one new upload. Map it to a pipeline start body.\nconst url = $json.link || ($json.id ? $json.id.replace('yt:video:', 'https://www.youtube.com/watch?v=') : '');\nreturn [{ json: {\n  project: 'Financial 1',\n  source: url,\n  name: (($json.title || 'clip').slice(0, 50)),\n  n: 10,\n  render_top: 3\n} }];"
+      },
+      "id": "b1000000-0000-0000-0000-000000000002",
+      "name": "Build Start Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-340, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/clip-pipeline",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b1000000-0000-0000-0000-000000000003",
+      "name": "Fire Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8757/notify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"New source queued\",\n  \"content\": \"{{ $('Build Start Body').item.json.name }} -> rendering, will ping you to approve.\"\n}",
+        "options": {}
+      },
+      "id": "b1000000-0000-0000-0000-000000000004",
+      "name": "Notify Queued",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [100, 0]
+    }
+  ],
+  "connections": {
+    "New Video (RSS)": {"main": [[{"node": "Build Start Body", "type": "main", "index": 0}]]},
+    "Build Start Body": {"main": [[{"node": "Fire Pipeline", "type": "main", "index": 0}]]},
+    "Fire Pipeline": {"main": [[{"node": "Notify Queued", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

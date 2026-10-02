@@ -1,0 +1,62 @@
+{
+  "name": "Drip Publish — space approved clips across the day",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "hours", "hoursInterval": 4}]}
+      },
+      "id": "c1000000-0000-0000-0000-000000000001",
+      "name": "Every 4h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rotate through a fixed list of already-approved clip numbers, posting one\n// per tick. Edit PROJECT / RUN / QUEUE for your run, or feed these from a\n// Google Sheet (see 05_sheets_log) instead of hardcoding.\nconst PROJECT = 'Financial 1';\nconst RUN = 'REPLACE_RUN_NAME';\nconst QUEUE = [1, 2, 3];\nconst data = $getWorkflowStaticData('global');\ndata.dripIndex = (data.dripIndex || 0);\nif (data.dripIndex >= QUEUE.length) return [];\nconst clip = QUEUE[data.dripIndex];\ndata.dripIndex += 1;\nreturn [{ json: { project: PROJECT, run_name: RUN, clip } }];"
+      },
+      "id": "c1000000-0000-0000-0000-000000000002",
+      "name": "Next In Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-340, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8756/jobs/upload",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"project\": \"{{ $json.project }}\",\n  \"name\": \"{{ $json.run_name }}\",\n  \"format\": \"mobile\",\n  \"privacy\": \"public\",\n  \"clips\": \"{{ $json.clip }}\"\n}",
+        "options": {}
+      },
+      "id": "c1000000-0000-0000-0000-000000000003",
+      "name": "Upload One",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8757/notify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"Drip published\",\n  \"content\": \"{{ $('Next In Queue').item.json.run_name }}: posted clip {{ $('Next In Queue').item.json.clip }} (public).\"\n}",
+        "options": {}
+      },
+      "id": "c1000000-0000-0000-0000-000000000004",
+      "name": "Notify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [100, 0]
+    }
+  ],
+  "connections": {
+    "Every 4h": {"main": [[{"node": "Next In Queue", "type": "main", "index": 0}]]},
+    "Next In Queue": {"main": [[{"node": "Upload One", "type": "main", "index": 0}]]},
+    "Upload One": {"main": [[{"node": "Notify", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

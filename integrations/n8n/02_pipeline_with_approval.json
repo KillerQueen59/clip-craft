@@ -1,0 +1,150 @@
+{
+  "name": "Clip Pipeline — render + Discord approval + publish",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clip-pipeline",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "name": "Start (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-640, 0],
+      "webhookId": "clip-pipeline"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8756/jobs/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"project\": \"{{ $json.body.project }}\",\n  \"source\": \"{{ $json.body.source }}\",\n  \"name\": \"{{ $json.body.name }}\",\n  \"n\": {{ $json.body.n || 10 }},\n  \"render_top\": {{ $json.body.render_top || 3 }},\n  \"formats\": \"mobile\",\n  \"webhook_url\": \"{{ $execution.resumeUrl }}\"\n}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "name": "Start Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-420, 0]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "name": "Wait for Render",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-200, 0],
+      "webhookId": "wait-render"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The render job POSTed its result here. result = manifest.json (array).\nconst body = $json.body || $json;\nconst manifest = body.result || [];\nconst start = $('Start (Webhook)').first().json.body;\nconst clips = manifest.map(c => ({\n  clip: c.clip,\n  title: c.title || c.hook || `Clip ${c.clip}`,\n  start: c.start,\n  end: c.end,\n  score: c.score,\n  file: (c.outputs && c.outputs.mobile) || null,\n  thumbnail: c.thumbnail || null\n}));\nreturn [{ json: { project: start.project, run_name: start.name, clips } }];"
+      },
+      "id": "a1000000-0000-0000-0000-000000000004",
+      "name": "Prep Clips",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8757/approval",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"resume_url\": \"{{ $execution.resumeUrl }}\",\n  \"project\": \"{{ $json.project }}\",\n  \"run_name\": \"{{ $json.run_name }}\",\n  \"clips\": {{ JSON.stringify($json.clips) }}\n}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000005",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000006",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [460, 0],
+      "webhookId": "wait-approval"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Discord bot POSTed {project, run_name, decisions, approved}.\nconst b = $json.body || $json;\nconst approved = (b.approved || []);\nif (!approved.length) return [];\nreturn [{ json: {\n  project: b.project,\n  run_name: b.run_name,\n  clips: approved.join(','),\n  decisions: b.decisions\n} }];"
+      },
+      "id": "a1000000-0000-0000-0000-000000000007",
+      "name": "Filter Approved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8756/jobs/upload",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"project\": \"{{ $json.project }}\",\n  \"name\": \"{{ $json.run_name }}\",\n  \"format\": \"mobile\",\n  \"privacy\": \"unlisted\",\n  \"clips\": \"{{ $json.clips }}\"\n}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000008",
+      "name": "Upload YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8756/jobs/tiktok",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"project\": \"{{ $('Filter Approved').item.json.project }}\",\n  \"name\": \"{{ $('Filter Approved').item.json.run_name }}\",\n  \"format\": \"mobile\"\n}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000009",
+      "name": "Push TikTok",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8757/notify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"Published\",\n  \"content\": \"{{ $('Filter Approved').item.json.run_name }}: shipped clips {{ $('Filter Approved').item.json.clips }} to YouTube + TikTok.\"\n}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-00000000000a",
+      "name": "Notify Done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 0]
+    }
+  ],
+  "connections": {
+    "Start (Webhook)": {"main": [[{"node": "Start Run", "type": "main", "index": 0}]]},
+    "Start Run": {"main": [[{"node": "Wait for Render", "type": "main", "index": 0}]]},
+    "Wait for Render": {"main": [[{"node": "Prep Clips", "type": "main", "index": 0}]]},
+    "Prep Clips": {"main": [[{"node": "Send to Discord", "type": "main", "index": 0}]]},
+    "Send to Discord": {"main": [[{"node": "Wait for Approval", "type": "main", "index": 0}]]},
+    "Wait for Approval": {"main": [[{"node": "Filter Approved", "type": "main", "index": 0}]]},
+    "Filter Approved": {"main": [[{"node": "Upload YouTube", "type": "main", "index": 0}]]},
+    "Upload YouTube": {"main": [[{"node": "Push TikTok", "type": "main", "index": 0}]]},
+    "Push TikTok": {"main": [[{"node": "Notify Done", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

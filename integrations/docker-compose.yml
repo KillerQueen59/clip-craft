@@ -1,0 +1,20 @@
+# n8n for the clip pipeline. The clipcraft API and Discord bot run on the HOST
+# (they need the host's Python, ffmpeg and GPU); n8n reaches them through
+# host.docker.internal, which the extra_hosts entry maps to the host gateway.
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Jakarta}
+      - N8N_SECURE_COOKIE=false          # allow http://localhost login (local only)
+      - N8N_RUNNERS_ENABLED=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

@@ -1,0 +1,61 @@
+# ---- Secrets / credentials (NEVER commit) ----
+*.token.json
+.youtube_token*.json
+.tiktok_token*.json
+.gsheets_service_account.json
+client_secret*.json
+*service_account*.json
+eternal-brand-*.json
+.youtube_api_key
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- User content, runs, results (data, not code) ----
+projects/
+output/
+raw_cuts/
+main_content/
+inbox/
+work/
+scratchpad_logs/
+graphify-out/
+reframe_experiment/
+tts-example/
+experiments/
+training/
+tiktok-pages/
+integrations/.jobs/
+
+# ---- Media & large blobs ----
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.jfif
+*.srt
+*.ass
+*.words.json
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+*.stackdump
+.claude/

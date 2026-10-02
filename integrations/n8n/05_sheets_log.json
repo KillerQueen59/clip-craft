@@ -1,0 +1,64 @@
+{
+  "name": "Ledger — log run + shipped clips to Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clip-log",
+        "options": {}
+      },
+      "id": "e1000000-0000-0000-0000-000000000001",
+      "name": "Log In (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-720, 0],
+      "webhookId": "clip-log"
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8756/projects/{{ $json.body.project }}/runs/{{ $json.body.run_name }}/manifest",
+        "options": {}
+      },
+      "id": "e1000000-0000-0000-0000-000000000002",
+      "name": "Get Manifest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-500, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Log In (Webhook)').first().json.body;\nconst shipped = new Set(b.approved || []);\nconst manifest = Array.isArray($json) ? $json : ($json.data || []);\nconst now = new Date().toISOString();\nreturn manifest.map(c => ({ json: {\n  run: b.run_name,\n  clip: c.clip,\n  title: c.title || c.hook || '',\n  in_out: `${(c.start||0).toFixed(1)}-${(c.end||0).toFixed(1)}`,\n  score: c.score || 0,\n  youtube: shipped.has(c.clip) ? 'yes' : '',\n  tiktok: shipped.has(c.clip) ? 'yes' : '',\n  shipped_at: shipped.has(c.clip) ? now : ''\n} }));"
+      },
+      "id": "e1000000-0000-0000-0000-000000000003",
+      "name": "Build Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-280, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "REPLACE_SPREADSHEET_ID", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Sheet1", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "e1000000-0000-0000-0000-000000000004",
+      "name": "Append to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-40, 0]
+    }
+  ],
+  "connections": {
+    "Log In (Webhook)": {"main": [[{"node": "Get Manifest", "type": "main", "index": 0}]]},
+    "Get Manifest": {"main": [[{"node": "Build Rows", "type": "main", "index": 0}]]},
+    "Build Rows": {"main": [[{"node": "Append to Sheet", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

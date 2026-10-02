@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clip System</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎬 <span>Clip System</span></div>
+    <div class="ctx">
+      <label>Project</label>
+      <select id="projectSelect"></select>
+      <button id="newProjectBtn" class="ghost" title="New project">＋ New</button>
+      <button id="refreshBtn" class="ghost" title="Reload">⟳</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="run" class="active">Run</button>
+    <button data-tab="review">Review</button>
+    <button data-tab="recut">Recut</button>
+    <button data-tab="upload">Upload</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="doctor">Doctor</button>
+  </nav>
+
+  <main>
+    <!-- RUN -->
+    <section id="tab-run" class="tab active">
+      <h2>Generate clips</h2>
+      <div class="grid2">
+        <div class="field">
+          <label>Source (local file path or YouTube URL)</label>
+          <div class="row">
+            <input id="runSource" type="text" placeholder="https://youtu.be/…  or  D:\videos\ep1.mp4" />
+            <button id="browseBtn" class="ghost">Browse…</button>
+          </div>
+          <div id="sourceChips" class="chips"></div>
+        </div>
+        <div class="field">
+          <label>Run name <span class="muted">(optional — output folder)</span></label>
+          <input id="runName" type="text" placeholder="auto from source" />
+        </div>
+        <div class="field">
+          <label>Candidates to find (n)</label>
+          <input id="runN" type="number" value="10" min="1" />
+        </div>
+        <div class="field">
+          <label>Render top</label>
+          <input id="runTop" type="number" value="3" min="1" />
+        </div>
+        <div class="field">
+          <label>Formats <span class="muted">(comma-sep)</span></label>
+          <input id="runFormats" type="text" placeholder="mobile" />
+        </div>
+      </div>
+      <div class="actions">
+        <button id="runBtn" class="primary">▶ Run pipeline</button>
+        <button id="candidatesBtn" class="ghost">List candidates only</button>
+      </div>
+      <p class="hint">Pipeline: download → transcribe (whisper) → select (Ollama) → render (ffmpeg). First run on a long video can take a while.</p>
+    </section>
+
+    <!-- REVIEW -->
+    <section id="tab-review" class="tab">
+      <h2>Review clips</h2>
+      <div class="row">
+        <label>Run</label>
+        <select id="reviewRun"></select>
+        <button id="openRunFolder" class="ghost">📂 Open output folder</button>
+      </div>
+      <div id="clipGrid" class="clip-grid"></div>
+    </section>
+
+    <!-- RECUT -->
+    <section id="tab-recut" class="tab">
+      <h2>Recut a clip</h2>
+      <div class="row">
+        <label>Run</label>
+        <select id="recutRun"></select>
+        <label>Clip #</label>
+        <input id="recutClip" type="number" min="1" value="1" style="width:80px" />
+        <button id="recutLoadBtn" class="ghost">Load transcript</button>
+        <label>Formats</label>
+        <input id="recutFormats" type="text" placeholder="config default" style="width:140px" />
+      </div>
+      <p class="hint">Fix wrong words (e.g. stray Chinese) in the transcript, keep the timings, then re-render just this clip. Leave the transcript empty to let the pipeline extract it the first time.</p>
+      <div id="recutEditor" class="recut-editor"></div>
+      <div class="actions">
+        <button id="recutSaveBtn" class="ghost" disabled>💾 Save transcript</button>
+        <button id="recutRenderBtn" class="primary">✂ Re-render clip</button>
+      </div>
+    </section>
+
+    <!-- UPLOAD -->
+    <section id="tab-upload" class="tab">
+      <h2>Upload</h2>
+      <div class="row">
+        <label>Run</label>
+        <select id="uploadRun"></select>
+        <label>Format</label>
+        <input id="uploadFormat" type="text" value="mobile" style="width:120px" />
+      </div>
+
+      <div class="upload-cols">
+        <div class="card">
+          <h3>YouTube (Shorts)</h3>
+          <div class="field"><label>Privacy</label>
+            <select id="ytPrivacy"><option>unlisted</option><option>private</option><option>public</option></select>
+          </div>
+          <div class="field"><label>Account <span class="muted">(optional)</span></label>
+            <input id="ytAccount" type="text" placeholder="config default" />
+          </div>
+          <div class="field"><label>Clips <span class="muted">(e.g. 1-10 or 1,3,5)</span></label>
+            <input id="ytClips" type="text" placeholder="all" />
+          </div>
+          <div class="field"><label>Seconds between uploads</label>
+            <input id="ytEvery" type="number" value="60" min="0" />
+          </div>
+          <label class="check"><input id="ytDry" type="checkbox" checked /> Dry run (preview only)</label>
+          <div class="actions"><button id="ytBtn" class="primary">⬆ Upload to YouTube</button></div>
+        </div>
+
+        <div class="card">
+          <h3>TikTok (drafts to inbox)</h3>
+          <p class="hint">First time: authorize, paste the redirect code, then upload.</p>
+          <div class="field"><label>Auth code <span class="muted">(from Authorize step)</span></label>
+            <input id="tkCode" type="text" placeholder="paste code / redirected URL" />
+          </div>
+          <label class="check"><input id="tkDry" type="checkbox" checked /> Dry run (preview only)</label>
+          <div class="actions">
+            <button id="tkAuthBtn" class="ghost">1 · Authorize</button>
+            <button id="tkCodeBtn" class="ghost">2 · Submit code</button>
+            <button id="tkBtn" class="primary">3 · Push drafts</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab">
+      <h2>Project settings</h2>
+      <div class="grid2">
+        <div class="field">
+          <label>config.toml</label>
+          <textarea id="cfgText" spellcheck="false" class="code"></textarea>
+          <button id="cfgSave" class="ghost">Save config</button>
+        </div>
+        <div class="field">
+          <label>brief.txt <span class="muted">(do / don't guidance for selection)</span></label>
+          <textarea id="briefText" spellcheck="false" class="code"></textarea>
+          <button id="briefSave" class="ghost">Save brief</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DOCTOR -->
+    <section id="tab-doctor" class="tab">
+      <h2>Environment check</h2>
+      <p class="hint">Verifies ffmpeg, Ollama, whisper model and config for the current project.</p>
+      <div class="actions"><button id="doctorBtn" class="primary">🩺 Run doctor</button></div>
+    </section>
+  </main>
+
+  <!-- Live log console -->
+  <div id="console" class="console collapsed">
+    <div class="console-head">
+      <span id="consoleLabel">Console</span>
+      <span id="consoleStatus" class="badge"></span>
+      <div class="spacer"></div>
+      <button id="cancelJobBtn" class="ghost" hidden>Stop</button>
+      <button id="consoleToggle" class="ghost">▲</button>
+    </div>
+    <pre id="consoleBody" class="console-body"></pre>
+  </div>
+
+  <!-- Video preview modal -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-inner">
+      <button id="modalClose" class="modal-close">✕</button>
+      <video id="modalVideo" controls></video>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+{
+  "name": "Fan-out — Instagram Reels + Facebook + X",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clip-fanout",
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000001",
+      "name": "Fanout In (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-720, 0],
+      "webhookId": "clip-fanout"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_IG_USER_ID/media",
+        "sendQuery": true,
+        "queryParameters": {"parameters": [
+          {"name": "media_type", "value": "REELS"},
+          {"name": "video_url", "value": "={{ $json.body.video_url }}"},
+          {"name": "caption", "value": "={{ $json.body.caption }}"},
+          {"name": "access_token", "value": "REPLACE_IG_LONG_LIVED_TOKEN"}
+        ]},
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000002",
+      "name": "IG: Create Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-480, -160]
+    },
+    {
+      "parameters": {"amount": 60, "unit": "seconds"},
+      "id": "d1000000-0000-0000-0000-000000000003",
+      "name": "IG: Wait Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-260, -160],
+      "webhookId": "ig-wait"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_IG_USER_ID/media_publish",
+        "sendQuery": true,
+        "queryParameters": {"parameters": [
+          {"name": "creation_id", "value": "={{ $json.id }}"},
+          {"name": "access_token", "value": "REPLACE_IG_LONG_LIVED_TOKEN"}
+        ]},
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000004",
+      "name": "IG: Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-40, -160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PAGE_ID/videos",
+        "sendQuery": true,
+        "queryParameters": {"parameters": [
+          {"name": "file_url", "value": "={{ $('Fanout In (Webhook)').item.json.body.video_url }}"},
+          {"name": "description", "value": "={{ $('Fanout In (Webhook)').item.json.body.caption }}"},
+          {"name": "access_token", "value": "REPLACE_PAGE_TOKEN"}
+        ]},
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000005",
+      "name": "FB: Post Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-480, 60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twitter.com/2/tweets",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $('Fanout In (Webhook)').item.json.body.caption }}\",\n  \"media\": { \"media_ids\": [\"REPLACE_UPLOADED_MEDIA_ID\"] }\n}",
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000006",
+      "name": "X: Post Tweet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-480, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8757/notify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"Fan-out done\",\n  \"content\": \"Pushed a clip to IG Reels / FB / X.\"\n}",
+        "options": {}
+      },
+      "id": "d1000000-0000-0000-0000-000000000007",
+      "name": "Notify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Fanout In (Webhook)": {"main": [[
+      {"node": "IG: Create Container", "type": "main", "index": 0},
+      {"node": "FB: Post Video", "type": "main", "index": 0},
+      {"node": "X: Post Tweet", "type": "main", "index": 0}
+    ]]},
+    "IG: Create Container": {"main": [[{"node": "IG: Wait Processing", "type": "main", "index": 0}]]},
+    "IG: Wait Processing": {"main": [[{"node": "IG: Publish", "type": "main", "index": 0}]]},
+    "IG: Publish": {"main": [[{"node": "Notify", "type": "main", "index": 0}]]},
+    "FB: Post Video": {"main": [[{"node": "Notify", "type": "main", "index": 0}]]},
+    "X: Post Tweet": {"main": [[{"node": "Notify", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

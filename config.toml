@@ -1,0 +1,562 @@
+# ClipCraft configuration — edit values here, no code required.
+
+[paths]
+# Where downloads, transcripts, and rendered clips are written.
+work_dir = "work"
+# Leave ffmpeg/ffprobe empty to auto-detect from PATH; doctor will fill these in
+# if it finds a winget/static install that isn't on PATH.
+ffmpeg = ""
+ffprobe = ""
+
+[transcribe]
+# faster-whisper model: tiny, base, small, medium, large-v3
+# large-v3 is best for Indonesian and fits an 8GB GPU in float16 (~5GB).
+# Drop to "small"/"medium" only if forced onto CPU (large-v3 is slow there).
+model = "large-v3"
+# auto -> use CUDA GPU if available, else CPU. Force with "cuda" or "cpu".
+device = "auto"
+# ctranslate2 precision. Empty = auto (GPU: int8_float16, CPU: int8).
+# int8_float16 runs large-v3 ~1.5-2x faster than float16 on an 8GB card with
+# negligible quality loss. Set "float16" to force full precision.
+compute_type = ""
+# language code (e.g. "id", "en") or "auto" to detect. Force "id" per project —
+# auto-detect misfires on code-switched Indonesian/English and wrecks whole spans.
+language = "auto"
+
+# Domain vocabulary hint. Whisper can't spell names it has never seen, so it
+# guesses phonetically and mangles the exact proper nouns titles depend on.
+# List names/brands/terms per project, e.g.:
+#   initial_prompt = "Robbie Jeo, Komunitech, AI Agents, workshop, solopreneur."
+initial_prompt = ""
+
+# hotwords biases decoding for the WHOLE file (unlike initial_prompt, which only
+# conditions the first window and stops helping once context is off on long-form).
+# Leave empty and a project Words.txt auto-seeds BOTH this and initial_prompt.
+hotwords = ""
+
+# Accuracy vs. long-form safety. Beam search is more accurate but makes hour-long
+# sources crawl, so anything longer than long_form_minutes falls back to greedy
+# (long_form_beam_size) with context off to dodge the repetition loop.
+beam_size = 5
+long_form_minutes = 20
+long_form_beam_size = 1
+# Applied only to standard-length videos; auto-forced False for long-form.
+condition_on_previous_text = true
+
+# Hallucination guards — cut the garbage Whisper invents over music/silence.
+no_speech_threshold = 0.6
+compression_ratio_threshold = 2.4
+log_prob_threshold = -1.0
+
+# Pre-clean the audio before recognition (timing is preserved, so word
+# timestamps stay valid). Helps noisy live streams / crowd audio most.
+[transcribe.audio]
+clean = true
+highpass = 80        # Hz — remove low rumble/hum (0 to disable)
+loudnorm = true      # EBU R128 loudness normalization
+denoise = false      # FFT denoiser — enable only for genuinely noisy sources
+
+# Voice-activity detection trims non-speech before recognition. The library
+# defaults clip word-initial/final consonants and drop short interjections — the
+# punchy one-word reactions clips are built on. Pad the speech regions and require
+# a real pause before cutting. Any key here is passed straight to faster-whisper.
+[transcribe.vad]
+speech_pad_ms = 400          # keep 400ms around speech so consonants aren't clipped
+min_silence_duration_ms = 500  # need a real pause before splitting a speech region
+
+[select]
+# Local Ollama model used to pick candidate clips.
+ollama_url = "http://localhost:11434"
+model = "qwen2.5:7b"
+# How many candidate segments to ask the model for.
+candidates = 10
+# Max candidates requested per model call. Keep modest — asking an 8B model for
+# dozens of JSON items at once is slow and can time out. Total candidates you can
+# get ~= (number of transcript chunks) * max_per_chunk.
+max_per_chunk = 12
+# Transcript is analyzed in chunks of this many characters. Smaller = faster,
+# more reliable calls and more even coverage across the whole video.
+chunk_chars = 9000
+request_timeout = 600      # seconds to wait for one Ollama response
+num_ctx = 8192             # model context window
+max_output_tokens = 2048   # cap generation length per call
+# Optional persistent do/don't brief applied to every run (override with --brief).
+# brief_file = "brief.txt"
+
+[reaction]
+# Audience-reaction scoring. The transcript can't tell whether a joke LANDED, so
+# we detect the room's laughter directly from the audio with PANNs (a pretrained
+# AudioSet CNN with real Laughter/Giggle/Chuckle/Cheering classes) and use it to
+# re-rank candidates. Laughter is a high-precision POSITIVE signal and a useless
+# NEGATIVE one: many clips are situationally funny with nobody laughing on-mic —
+# so this only ever PROMOTES clips it hears laughter in, and never drops any
+# (require = false). Validated on the training set: laughing clips score
+# peak 0.24-0.39, silent ones 0.00-0.04 — a clean split around 0.20.
+enabled = true
+device = "cpu"          # PANNs runs fine on CPU; set "cuda" only if VRAM is free
+require = false         # NEVER true for a comedy channel — kills situational clips
+threshold = 0.20        # reaction prob counted as "laughter present" (calibrated)
+min_reaction = 0.15     # only used when require = true
+reaction_boost = 2.5    # points added to score, scaled by how hard the room laughed
+cheer_weight = 0.5      # crowd cheer/applause counts at half a laugh (noisier)
+# Out-point: land the clip ON the punchline laugh instead of a beat before it.
+snap_out = true
+out_lookahead = 4.0     # seconds past the LLM's end to search for the laugh
+laugh_tail = 0.6        # end this long after the laugh burst finishes
+
+[diarize]
+# Speaker-overlap decision layer (clipcraft/diarize.py). Answers "are two people
+# talking at once?" from the mixed audio alone via pyannote diarization — the
+# brain behind switching between a single-speaker focus and the duo stack. It only
+# decides WHEN to show both; WHERE to crop each speaker is per-source framing (see
+# docs/stack-layouts.md). Off by default; enable per project.
+enabled = false
+model = "pyannote/speaker-diarization-3.1"
+device = "cpu"          # CPU is fine for short clip windows; "cuda" if VRAM is free
+hf_token = ""  # set via env HF_TOKEN (free HuggingFace read token; downloads the gated model). Do NOT commit a real token.
+# num_speakers = 4      # pin the count if you know it (PKA = 4); else use min/max
+# min_speakers = 2
+# max_speakers = 6
+grid = 0.10             # sampling resolution (s) for the who's-talking timeline
+min_duo = 0.8           # ignore overlap bursts shorter than this
+min_single = 1.5        # don't cut to a single face for a sliver shorter than this
+
+[upload]
+# Bulk upload to YouTube Shorts (see README for the one-time OAuth setup).
+client_secret = "client_secret.json"   # OAuth "Desktop app" client, at project root
+category_id = 22                        # 22 = People & Blogs
+title_prefix = ""                       # prepended to every video title, e.g. a show name
+hashtags = ["#Shorts"]                  # appended to each video description
+description_footer = ""                 # optional CTA/text added to every description
+
+# Multiple YouTube accounts/channels. Pick one at upload time with
+# `--account <name>`; each keeps its own cached login token so you never have to
+# re-authorize when switching. `main` reuses the existing .youtube_token.json.
+# If both channels live under the same Google Cloud OAuth app, leave
+# client_secret out of the sub-tables (the top-level one above is used).
+default_account = "main"
+
+[upload.accounts.main]
+token = ".youtube_token.json"
+
+[upload.accounts.second]
+token = ".youtube_token_second.json"
+# client_secret = "client_secret_other.json"   # only if this channel uses a different OAuth app
+
+[upload.accounts.third]
+token = ".youtube_token_third.json"
+# client_secret = "client_secret_other.json"   # only if this channel uses a different OAuth app
+
+[tiktok]
+# Push clips to a creator's TikTok INBOX as drafts (they finish posting in-app).
+# Setup at developers.tiktok.com: app with Login Kit + Content Posting API, scopes
+# user.info.basic + video.upload. TikTok requires an HTTPS redirect URI (no
+# localhost/http) — register one and mirror it in redirect_uri below. Add the
+# target account as a sandbox Target User. Auth is a two-step manual code paste:
+#   1) py -3 -m clipcraft tiktok --project X --auth
+#   2) py -3 -m clipcraft tiktok --project X --code "<code-or-redirected-URL>"
+#   3) py -3 -m clipcraft tiktok --project X        (uploads the drafts)
+# Prefer env vars TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET over committing secrets.
+client_key = ""      # set via env TIKTOK_CLIENT_KEY
+client_secret = ""   # set via env TIKTOK_CLIENT_SECRET
+redirect_uri = "https://killerqueen59.github.io/tiktok-callback/"
+
+[telegram]
+# Send clips to your phone via a Telegram bot, for manual Instagram Reels posting
+# (IG has no draft-via-API path for a personal account). Setup:
+#   1) Message @BotFather -> /newbot -> copy the token into bot_token below.
+#   2) Open a chat with your new bot and send it any message.
+#   3) py -3 -m clipcraft telegram --project X --whoami   (prints your chat_id)
+#   4) put that chat_id below, then:
+#      py -3 -m clipcraft telegram --project X            (sends the clips)
+# Prefer env vars TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID over committing secrets.
+bot_token = ""
+chat_id = ""
+hashtags = ["#reels", "#fyp"]   # appended to each clip's caption (falls back to [upload].hashtags)
+caption_footer = ""             # optional CTA added to every caption
+
+# --- Per-niche routing --------------------------------------------------------
+# One bot fans clips out per niche/brand. TWO layouts, pick one:
+#
+# A) ONE forum group + a Topic per niche (like a "Lowongan Kerja IT" group with
+#    General / Diskusi / Tips sub-sections). Cleanest for a solo operator.
+#      1) Phone: create ONE group, enable Topics (Group Settings -> Topics), add a
+#         Topic per niche. Add your bot as admin (allow Manage/Post).
+#      2) Post a message inside EACH topic, then:  py -3 -m clipcraft telegram --whoami
+#         -> prints the group's chat_id (-100…) and each topic's id.
+#      3) Set group_id below + a { topic = N } per niche in [telegram.channels].
+#
+# B) SEPARATE channel per niche (full brand isolation / per-brand access).
+#      1) Phone: create a Channel per niche, add the bot as admin (Post Messages).
+#      2) Post in each, run --whoami, paste each channel's -100… id as a string.
+#
+# Then route a project:  [telegram]\n  channel = "pojok-informasi"  in its config,
+# or force per send:  telegram --project X --channel pojok-bola
+# An explicit channel overrides the env TELEGRAM_CHAT_ID default.
+
+# For layout A, set the shared forum supergroup id here (leave empty for layout B):
+group_id = "-1004253094591"   # "Pojok Klip" forum supergroup
+
+[telegram.channels]
+# Layout A (topics in the group above):   pojok-x = { topic = 7 }
+# Layout B (separate channels):           pojok-x = "-1001234567890"
+pojok-jenaka    = { topic = 4 }    # comedy
+pojok-informasi = { topic = 3 }    # finance, beauty, insightful podcast
+pojok-bola      = { topic = 2 }    # football / sports
+pojok-media     = { topic = 9 }    # film, song
+pojok-dakwah    = { topic = 10 }   # islamic
+pojok-random    = { topic = 11 }   # random clips
+
+# Campaign / clip status tracker -> a Google Sheet, auto-rebuilt after every
+# upload / tiktok / telegram / run so you never lose track of what's shipped.
+# It only READS each project's clips/manifest.json + the [DONE] rename marker.
+# One-time setup:
+#   1) Google Cloud console -> enable the "Google Sheets API".
+#   2) Create a Service Account, add a JSON key, download it, save it at the repo
+#      root as .gsheets_service_account.json (git-ignore it — it's a secret).
+#   3) Make a Google Sheet, copy its id from the URL
+#      (docs.google.com/spreadsheets/d/<THIS_ID>/edit), put it in sheet_id below.
+#   4) Share that sheet with the service account's client_email (Editor).
+#   5) py -3 -m clipcraft track --sync   (backfills everything already done)
+[tracking]
+enabled = true
+sheet_id = "1R8h8Nk5b3Aa6EZ3DF_BLIv3S8-D4e8QfAAG1_d0HXSw"
+service_account = ".gsheets_service_account.json"
+
+# Two-person review workflow (four-eyes). Producer claims a run, the OTHER person
+# rates each clip PASS/REDO before it ships:
+#   py -3 -m clipcraft claim --project X --name run --by budi
+#   py -3 -m clipcraft rate  --project X --name run --clips 1 --pass --score 4 --by fauzan
+# Set CLIPCRAFT_USER=<name> once so you can drop --by. Owner/Status/Reviewer/Score/
+# Note land in the Sheet (merge-synced — never wiped). require_approval gates the
+# auto-publishers (YouTube/TikTok) to approved-only; Telegram review delivery is
+# never gated. Off by default so it can't surprise you — flip to true when ready.
+[review]
+require_approval = false
+
+[clip]
+# How the source is fit into the vertical frame:
+#   crop    = fill the frame, cropping the sides (good for a single talking head)
+#   contain = show the WHOLE frame with black bars (nothing lost)
+#   blur    = show the whole frame, filling the bars with a blurred copy (nicest)
+#   reframe = face-tracking close-up: follow the on-screen speaker and fill the
+#             frame; in a two-shot, crop to whoever's mouth is moving. Best for
+#             talking-head / interview / podcast footage. See [reframe] below.
+# Use contain/blur for screen recordings / charts so no content is cut off.
+fit = "reframe"
+
+# Length is content-driven: a clip runs as long as the complete thought needs.
+# These are guardrails, NOT a target — clips are never padded to hit a number.
+#   min_seconds: discard floor. A candidate shorter than this is grown by whole
+#                following sentences (never mid-sentence) until it clears the floor.
+#   max_seconds: hard ceiling. Longer thoughts are trimmed back to a sentence end.
+# A clip should cover the WHOLE topic (intro -> conclusion), so the ceiling is
+# generous — still well under the 180s YouTube Shorts limit. The floor is low so
+# Every clip must carry ONE complete idea (setup -> tension -> payoff), so the
+# floor is 30s: shorter than that rarely fits a full self-contained point. Length
+# above the floor is content-driven — extend to the natural conclusion (45/60/90s)
+# and never pad or truncate to hit a number.
+# NOTE: a floor only *permits* a length; it does not create variety. A weak model
+# grabs the shortest window that clears the floor (everything ends up ~floor long).
+# Variety + completeness come from the model judging a COMPLETE payload — see the
+# selection prompt.
+min_seconds = 30
+max_seconds = 90
+# Padding added around snapped word boundaries.
+lead_in = 0.25
+tail = 0.35
+# How many top clips `run` renders by default.
+render_top = 3
+# Always also export a full-frame (un-reframed) raw cut of each rendered clip's
+# content span into <project>/raw_cuts/, next to the finished reframe clip, so
+# every project keeps raw cuts for a later manual-focus pass. `recut` keeps the
+# raw cut in sync with a retimed span. Set false per project to skip it.
+keep_raw_cuts = true
+# Always also export the "Main Content" deliverable into <project>/main_content/:
+# the same 9:16 reframe as the finished clip but RAW — no captions, no TTS hook,
+# no title card, no outro — plus a copy of the editable transcript sidecars. This
+# is the editable reframe base a manual pass builds on. Reuses the crop path from
+# the final render (no second detection; one extra encode). `recut` keeps it in
+# sync. Set false per project to skip it.
+keep_main_content = true
+
+# Auto-reframe tuning (only used when fit = "reframe"). Needs the mediapipe face
+# model at clipcraft/models/blaze_face_short_range.tflite.
+[reframe]
+# Face detection is YuNet (OpenCV-native, free, local) across all reframe paths.
+# INVARIANTS (code-enforced, not tunable here — see CLAUDE.md "Reframe focus"):
+#   * a silent stall holds on the last speaker's face, never the blank center
+#     (clipcraft/diarize.py _raw_spans);
+#   * the crop always contains a real face and snaps to a talker instantly, no lag
+#     (clipcraft/asd.py compute_asd_crop_path). Don't try to disable these via ease/deadzone.
+sample_fps = 6.0            # frames/sec analyzed for face position (higher = finer, slower)
+switch_dwell = 1.0         # min seconds locked on one face in a two-shot (anti-flicker)
+switch_margin = 1.4        # a two-shot speaker must out-move the other by this ratio to steal focus
+# min_confidence = 0.5     # YuNet detection threshold (lower = catches smaller/harder faces)
+# min_face = 0.045         # ignore faces narrower than this frac of frame width.
+#                            LOWER to ~0.02 for wide N-person shots where faces are
+#                            small/distant (>2 people across a room); 0.045 hides them.
+# ease = 0.28              # how fast the crop glides to a new position (0-1)
+# deadzone = 0.06          # face can drift this fraction of crop width before the crop follows
+# simplify_px = 8.0        # crop-path simplification tolerance in pixels
+
+[output]
+# Which formats to render for each clip. Names must match a [formats.*] table.
+# Override per-run with --formats mobile,desktop
+render = ["mobile"]
+
+[formats.mobile]
+width = 1080
+height = 1920   # 9:16 vertical — TikTok / Reels / Shorts
+
+[formats.desktop]
+width = 1920
+height = 1080   # 16:9 landscape — YouTube / desktop
+
+# Add your own, e.g. a square feed format:
+# [formats.square]
+# width = 1080
+# height = 1080
+
+# A persistent headline card at the top of the clip (the "hook title").
+# Text is generated per-clip by the selection model.
+[title]
+enabled = true
+# style = "card" -> single rounded card behind all lines, drop shadow + corner
+#                   accents (rendered as a PNG overlay; matches the reference).
+#         "box"  -> legacy libass box that hugs each line separately.
+style = "card"
+font = "Arial Black"
+font_size = 54
+prefix = ""              # prepended to the on-screen title, e.g. "Live Take Profit Show Suli :"
+text_color = "#2B1E0A"   # dark espresso brown — high contrast on the yellow card
+box_color = "#FBE38C"    # warm butter-yellow card (the viral "yellow title" look)
+box_opacity = 1.0        # 1 = solid card (box style only)
+pad = 24                 # inner padding around the text — bigger = more "card"
+radius = 28              # (card style) corner radius in px
+accents = true           # (card style) small corner dashes like the reference
+shadow = 8               # drop-shadow depth in px (0 = flat, no shadow)
+shadow_color = "#000000"
+shadow_opacity = 0.30    # 0 = invisible shadow, 1 = solid
+position = "bottom"      # top | bottom
+margin = 0.15            # distance from that edge, as fraction of height
+side_margin = 0.06       # left/right margin (controls line wrapping width)
+duration_seconds = 2     # how long the title card shows (0 = whole clip)
+uppercase = true
+bold = true
+
+# A closing call-to-action card burned into the last few seconds of the clip.
+# Off by default here; turn it on per project (see projects/suli.toml).
+[outro]
+enabled = true
+text = "Nonton selengkapnya di YouTube: @yourhandle"
+duration_seconds = 3     # shows during the final N seconds
+font = "Arial"
+font_size = 46
+text_color = "#FFFFFF"
+box_color = "#000000"
+box_opacity = 0.7
+position = "center"      # top | center | bottom
+uppercase = false
+bold = true
+# During the outro, hide the main video so attention goes to the CTA:
+#   hide_video = true  -> with fit="blur", the sharp foreground is dropped and
+#                         only the blurred background remains; other fit modes
+#                         fade to black. Set false to keep the video playing.
+hide_video = true
+fade_audio = true        # fade the audio out over the outro window
+
+# The opening hook that stops the scroll. Two ways to do it:
+#   mode = "clip" -> COLD OPEN: the single most gripping few seconds of the clip
+#                    (picked by the model) are copied to the very front, then the
+#                    full clip plays in order. The moment plays twice; total length
+#                    = hook length + clip length. This is the strongest hook.
+#   mode = "text" -> burn a punchy text teaser over the first `duration_seconds`.
+#   mode = "off"  -> no hook.
+[hook]
+enabled = true
+mode = "clip"
+# --- cold-open (mode = "clip") ---
+# The model tends to mark the gripping moment as a near-zero span; it's treated as
+# an anchor and grown to at least clip_min_seconds (trimmed to clip_max_seconds).
+clip_min_seconds = 3
+clip_max_seconds = 6
+# Only relocate a hook to the front when it sits in the BACK of the clip. This is
+# the split point as a fraction of the clip: a hook before it (front half) plays
+# raw with no cold open; a hook after it gets copied to the very start. 0.5 = the
+# midpoint. Lower it to relocate more aggressively, raise it to relocate less.
+relocate_after = 1.0
+# --- text teaser (mode = "text") ---
+duration_seconds = 3     # shows during the opening N seconds
+font = "Arial Black"
+font_size = 58
+text_color = "#FFFFFF"
+box_color = "#E11D48"    # bold highlight box behind the hook
+box_opacity = 0.85
+position = "top"         # top | center | bottom
+margin = 0.14            # distance from that edge, as fraction of height
+side_margin = 0.06
+uppercase = true
+bold = true
+
+# A small handle/watermark shown for the whole clip.
+[watermark]
+enabled = true
+text = "@ojantigakali"
+font = "Arial"
+font_size = 34
+color = "#FFFFFF"
+opacity = 0.55          # 0 = invisible, 1 = solid
+position = "center"     # center | top | bottom
+bold = false
+
+# Auto-generated thumbnail per clip: picks the frame where the person is
+# clearest (largest, in-focus face) and burns the title over it.
+[thumbnail]
+enabled = true
+width = 1280
+height = 720
+samples = 25            # frames sampled across the clip to find the best face
+show_title = true
+font = "Arial Black"
+font_size = 72
+text_color = "#FFFFFF"
+box_color = "#000000"
+box_opacity = 0.55
+position = "bottom"     # top | center | bottom
+margin = 0.08
+uppercase = true
+
+[captions]
+enabled = true
+font = "Arial Black"
+font_size = 64
+# Bottom margin as fraction of height for the caption baseline.
+# ~0.40 places captions in the lower-centre band, the way viral Shorts do —
+# not pinned to the very bottom edge.
+bottom_margin = 0.40
+uppercase = true
+bold = true
+# Words shown per caption. 2-3 is the viral norm (punchy, one phrase at a time).
+words_per_line = 3
+
+# Colors are #RRGGBB.
+# Karaoke highlight: the line is drawn in `text_color`, and the word currently
+# being spoken flips to `highlight_color` (the yellow "active word" look).
+highlight = true
+text_color = "#FFFFFF"
+highlight_color = "#FFE100"
+
+# style = "outline"  -> text with a colored outline + drop shadow (classic)
+#         "box"      -> text on a solid/semi-transparent box (like image #3)
+style = "outline"
+
+# --- outline style ---
+outline_color = "#000000"
+outline_width = 6
+shadow = 2
+
+# --- box style (used when style = "box") ---
+box_color = "#000000"
+box_opacity = 0.6      # 0 = invisible, 1 = solid
+
+# Hook voiceover: an AI voice reads the hook (or title) aloud over the opening
+# seconds while the original audio ducks underneath. Uses edge-tts — free, no API
+# key, but needs internet (it calls Microsoft's servers). Off by default.
+#   pip install edge-tts
+# Indonesian voices: id-ID-GadisNeural (female), id-ID-ArdiNeural (male).
+[tts]
+enabled = true
+engine = "edge-tts"
+voice = "id-ID-GadisNeural"
+source = "hook"        # hook | title  — which text field is read aloud
+rate = "+0%"           # edge-tts prosody rate, e.g. "+10%" faster, "-10%" slower
+volume = "+0%"         # edge-tts synthesis volume
+gain = 1.0             # voiceover volume multiplier
+lead_in = 0.15         # seconds of silence before the voice starts
+# hold_first_frame = true: freeze the opening frame while the voice reads the
+#   hook, then let the clip roll (adds voice+lead_in seconds to the front).
+# false: talk over the moving video from the start, ducking the original audio
+#   by `duck` for the voice's duration.
+hold_first_frame = true
+blur_sigma = 24        # (hold mode) blur strength on the frozen frame; 0 = no blur
+duck = 0.35            # (talk-over mode only) original audio level under the voice
+
+# CORE — a montage of many iconic moments from ONE context (film/show/person)
+# stitched into a single vertical video. Different output type from a clip:
+# see clipcraft/core.py. Built with `clipcraft core --manifest core.json`.
+# Values below are locked to the @brosklipp21 "PESTA COPET CORE" reference.
+[core]
+fps = 30
+# Each scene is cover-cropped into a centered cinematic band this tall, as a
+# fraction of the frame WIDTH (0.9 -> 720x648 band on a 720x1280 frame, giving
+# symmetric black bars ~ half the frame height). This keeps the film's framing
+# instead of filling the 9:16 frame like a clip does.
+band_height_ratio = 0.9
+# The "<label> CORE:" tag.
+#   tag_mode = "transition" -> the tag is NOT persistent; it flashes in only at
+#              each cut, synced with the whoosh (the punchy reference look).
+#   tag_mode = "persistent" -> tag stays on every frame the whole time.
+tag_mode = "transition"
+tag_show_seconds = 0.75       # how long the tag flash stays up at each cut
+label_suffix = " CORE:"
+label_font = "Arial Black"
+label_font_size = 60          # px at 1080 width; scaled to the render width
+label_color = "#FFFFFF"
+label_outline_color = "#000000"
+label_outline_width = 3
+label_bold = true
+label_italic = true           # the reference tag is slanted
+label_uppercase = true
+label_y = 0.539               # tag vertical center, as fraction of height (~690/1280)
+# Optional music bed under the montage (set "music" in the manifest):
+music_volume = 0.25           # bed level; scene dialogue stays at 1.0
+# Transition = a HELD interstitial at each cut: the montage freezes / goes black
+# and holds while the whoosh plays out FULLY (showing the tag), then cuts to the
+# next beat. The SFX is auto-trimmed to just the whoosh.
+#   transition_style = "freeze" -> hold the outgoing beat's last frame
+#                      "black"  -> hold a black screen
+# Set "transition" (SFX) in the manifest, or a default file here:
+# transition_file = "training/Core Sound Effect.mp3"
+transition_style = "freeze"
+transition_volume = 0.9       # whoosh level relative to dialogue at 1.0
+transition_tail = 0.05        # extra hold after the whoosh ends, before the cut
+# End card (promo poster / CTA). Videos play in full; images are held this long:
+end_card_seconds = 4
+
+[export]
+# Emit editor projects ALONGSIDE the baked MP4, so a clip can be hand-tweaked in
+# a real editor before final export. Written into a sibling "edit/" folder next
+# to "clips/". These are a best-effort RE-DESCRIPTION of the cut, not a
+# pixel-identical re-import — see docs/editor-export.md for exactly what survives.
+enabled = false
+# Which projects to write. "fcpxml" opens in DaVinci Resolve, Premiere, and FCP.
+# "otio" needs `pip install opentimelineio`. "capcut" is EXPERIMENTAL (undocumented
+# draft schema, breaks between CapCut versions).
+formats = ["fcpxml", "otio", "capcut"]
+
+[discover]
+# ── Topic-based source discovery (YouTube Data API) ────────────────────────
+# Finds FRESH long-form videos per topic each day and writes a ranked approve-
+# queue into each target project's _DISCOVER_QUEUE.md. Tick [x] the ones you
+# want, then `py -3 discover.py --pull` downloads them into that project's
+# inbox/ where the auto-runner clips them. Engine: discover.py. Docs:
+# docs/discover.md.
+#
+# API key: create a free key in your Google Cloud project (APIs & Services ->
+# Credentials -> Create credentials -> API key), enable "YouTube Data API v3",
+# then put it here, in env YOUTUBE_API_KEY, or in a file .youtube_api_key.
+api_key = ""
+region = "ID"            # search region bias
+language = "id"          # relevance language
+published_within_hours = 24
+min_duration_s = 600     # >= 10 min: long-form only, skips Shorts
+min_views = 0            # optional floor; 0 = no floor (videos <24h have few views)
+max_per_topic = 15       # top N by view count, per topic, per run
+
+# One block per topic. `project` is the folder under projects/ the approved
+# pulls land in. Add as many as you like.
+[[discover.topics]]
+name = "comedy"
+query = "podcast komedi lucu"
+project = "Pojok Jenaka"
